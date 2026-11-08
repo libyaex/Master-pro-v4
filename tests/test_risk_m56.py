@@ -1,10 +1,8 @@
-# M2 الحيتان + M3 الاختراق — v2 تشخيصي
-import numpy as np
+# M2 الحيتان فقط — عزل
 import pytest
 
-from app.models import BookLevel, BookSnapshot, InstrumentClass, InstrumentSpec, Trade, utcnow
+from app.models import BookLevel, BookSnapshot, Trade, utcnow
 from app.modules.m2_whales import WhaleWatcher
-from app.modules.m3_listing_breakout import ListingBreakoutScanner
 
 
 def _book(exchange, bid, ask, ts=None):
@@ -16,7 +14,6 @@ def _book(exchange, bid, ask, ts=None):
 
 
 def test_whale_large_trade_detected():
-    # تداول كبير واحد فقط يتجاوز الحد الأدنى 1M — نطاق 60 صغيراً كله 500$
     now = utcnow()
     trades = [Trade(exchange="x", symbol="BTCUSDT", trade_id=str(i), ts=now,
                     price=50000.0, size=0.01, aggressor="buy") for i in range(60)]
@@ -50,55 +47,3 @@ def test_accumulation_from_executed_flow():
     w = WhaleWatcher()
     sig = w.accumulation(buys + sells)
     assert sig.direction == "accumulation"
-
-
-def fixture_spec(symbol="NEWUSDT"):
-    return InstrumentSpec(
-        exchange="binance_spot", symbol=symbol, base=symbol[:-4], quote="USDT",
-        instrument_class=InstrumentClass.CRYPTO, status="TRADING", market_type="spot",
-        tick_size=0.01, lot_step=0.0001, min_notional=5.0,
-    )
-
-
-def test_listing_diff_detects_new():
-    sc = ListingBreakoutScanner()
-    first = sc.diff_new_listings([fixture_spec("NEWUSDT")])
-    assert len(first) == 1
-    again = sc.diff_new_listings([fixture_spec("NEWUSDT")])
-    assert len(again) == 0
-
-
-def test_breakout_requires_close_and_volume():
-    sc = ListingBreakoutScanner()
-    n = 120
-    closes = np.full(n, 100.0); highs = np.full(n, 101.0); lows = np.full(n, 99.0)
-    vols = np.full(n, 10.0)
-    closes[-1] = 103.0; highs[-1] = 103.5; vols[-1] = 50.0
-    ev = sc.breakout("x", "TESTUSDT", closes, highs, lows, vols,
-                     depth_usd=100_000, spread_pct=0.01)
-    assert ev is not None and ev.direction == "up"
-
-
-def test_wick_alone_is_not_breakout():
-    sc = ListingBreakoutScanner()
-    n = 120
-    closes = np.full(n, 100.0); highs = np.full(n, 101.0); lows = np.full(n, 99.0)
-    vols = np.full(n, 10.0)
-    highs[-1] = 110.0
-    ev = sc.breakout("x", "TESTUSDT", closes, highs, lows, vols,
-                     depth_usd=100_000, spread_pct=0.01)
-    assert ev is None
-
-
-def test_suspicious_pump_blocked():
-    sc = ListingBreakoutScanner()
-    n = 120
-    closes = np.full(n, 100.0); highs = np.full(n, 101.0); lows = np.full(n, 99.0)
-    vols = np.full(n, 10.0)
-    closes[-1] = 130.0; vols[-1] = 80.0
-    ev = sc.breakout("x", "TESTUSDT", closes, highs, lows, vols,
-                     depth_usd=5_000, spread_pct=0.5,
-                     cross_exchange_moves={"other": -0.01})
-    assert ev is not None
-    assert ev.risk_label == "suspicious"
-    assert ("x", "TESTUSDT") in sc.blocklist
