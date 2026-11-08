@@ -83,7 +83,6 @@ class TrendPullback(Strategy):
         direction = "long"
         entry = float(c[-1])
         stop = float(min(swing_low, e21[-1] - atr))
-        rr = (entry + 3 * atr) - entry / (entry - stop) if stop else 0
         rr_val = ((entry + 3 * atr) - entry) / max(entry - stop, 1e-9)
         if rr_val < 1.5:
             return None
@@ -126,7 +125,9 @@ class RangeBBRSI(Strategy):
             return None
         entry = float(c[-1])
         stop = float(lower[-1] - 1.5 * atr)
-        rr = ((mid[-1] - entry)) / max(entry - stop, 1e-9)
+        if entry <= stop:
+            return None  # كسر عنيف تحت الوقف المحسوب — لا إشارة صالحة
+        rr = (mid[-1] - entry) / (entry - stop)
         if rr < 1.5:
             return None
         return SignalRecord(
@@ -167,16 +168,23 @@ class LiquiditySweepReversal(Strategy):
         if not swept:
             return None
         atr = ind.atr(h, l, c)[-1]
+        if math.isnan(atr) or atr <= 0:
+            return None
         entry = float(c[-1])
         stop = float(h[-1] + 0.2 * atr)
-        rr = ((swing_high - (swing_high - entry) * 2) - entry) / max(stop - entry, 1e-9)
+        tp1 = entry - 1.5 * atr
+        # الهدف الثاني: أقرب قاع swing إن كان أدنى من الهدف الأول، وإلا 2.5×ATR (ترتيب مستويات سليم للبيع)
+        tp2 = min(tp1, swing_low) if not math.isnan(swing_low) else entry - 2.5 * atr
+        tp3 = min(tp2, entry - 3 * atr)
+        if stop <= entry:
+            return None
+        rr = (entry - tp2) / (stop - entry)
         if rr < 1.5:
             return None
         return SignalRecord(
             exchange=ctx.exchange, symbol=ctx.symbol, instrument_class=ctx.instrument_class,
             direction="short", entry=round(entry, 8), stop_loss=round(stop, 8),
-            tp1=round(entry - 1.5 * atr, 8), tp2=round(swing_low, 8) if not math.isnan(swing_low) else round(entry - 3 * atr, 8),
-            tp3=round(entry - 3 * atr, 8), risk_reward=round(rr, 2),
+            tp1=round(tp1, 8), tp2=round(tp2, 8), tp3=round(tp3, 8), risk_reward=round(rr, 2),
             confidence=min(80, 45 + vz[-1] * 8),
             evidence=[
                 EvidenceItem(feature="wick_beyond_swing", value=f"high={h[-1]:.4f} > swing={swing_high:.4f}",

@@ -115,7 +115,8 @@ def _book(exchange, bid, ask, ts=None):
 def test_walk_book_real_depth():
     levels = [BookLevel(price=100.0, size=1.0), BookLevel(price=101.0, size=1.0)]
     r = walk_book(levels, 1.5)
-    assert r.avg_price == pytest.approx(100.5)
+    # 1.0 × 100 + 0.5 × 101 = 150.5 ÷ 1.5 = 100.333...
+    assert r.avg_price == pytest.approx(150.5 / 1.5)
     assert r.sufficient_depth
 
 
@@ -406,7 +407,7 @@ def test_backtester_insufficient_history_says_so():
     assert "لا نتائج تُختلق" in rep.note_ar
 
 
-def test_backtester_runs_and_reports(tmp_path=None):
+def test_backtester_runs_and_reports():
     closes, highs, lows, vols = fixture_candles(n=400)
     ctx = StrategyContext("x", "BTCUSDT", "crypto", closes, highs, lows, vols,
                           0.02, 100_000)
@@ -437,3 +438,58 @@ def test_no_guaranteed_profit_claims_in_code():
     r = subprocess.run(["grep", "-rni", "ضمان الربح", "app/", "README.md"],
                        capture_output=True, text=True)
     assert r.stdout.strip() == ""
+
+
+# ---------- انحدارات أُصلحت (regression) ----------
+def test_event_dataclasses_have_timestamps():
+    """كان ts=field(...) بلا تعليق نوع يرفع TypeError عند الاستيراد على بايثون 3.12."""
+    from app.modules.m2_whales import BookIntentEvent
+    e = BookIntentEvent(exchange="x", symbol="BTCUSDT", side="ask", price=1.0, size_delta=1.0, action="appeared")
+    assert isinstance(e.ts, datetime)
+
+
+def test_book_event_small_to_large_is_appeared():
+    w = WhaleWatcher()
+    prev = _book("x", 100.0, 101.0)   # الطلب عند 101 حجمه 2 فقط
+    curr = BookSnapshot(exchange="x", symbol="BTCUSDT", ts=utcnow(),
+                        bids=[BookLevel(price=100.0, size=2.0)],
+                        asks=[BookLevel(price=101.0, size=5000.0)])
+    events = w.book_events(prev, curr, big_size=1000.0)
+    assert [e.action for e in events] == ["appeared"]
+
+
+def test_queue_payload_json_roundtrip(tmp_path):
+    q = DurableQueue(str(tmp_path / "q.db"))
+    q.enqueue("analysis", {"symbol": "BTCUSDT", "n": 3, "tags": ["a", "b"]})
+    job = q.lease_next()
+    assert job.payload == {"symbol": "BTCUSDT", "n": 3, "tags": ["a", "b"]}
+
+
+def test_monte_carlo_is_bootstrap_not_permutation():
+    res = Backtester.monte_carlo(np.array([2.0, -1.0, 1.5, -0.5, 1.0, -1.0]), iters=300)
+    assert res["final_p5"] < res["final_p95"]
+
+
+def test_normalize_status_across_exchanges():
+    from app.connectors.base import normalize_status
+    for raw in ("TRADING", "Trading", "live", "1", "ENABLED"):
+        assert normalize_status(raw) == "TRADING"
+    assert normalize_status("BREAK") == "BREAK"
+
+
+def test_mexc_precision_accepts_digits_and_steps():
+    from app.connectors.mexc import _precision_to_step
+    assert _precision_to_step(2, 0.5) == pytest.approx(0.01)
+    assert _precision_to_step("0.0001", 0.5) == pytest.approx(0.0001)
+    assert _precision_to_step(None, 0.5) == 0.5
+
+
+def test_all_strategies_never_raise_on_random_data():
+    from app.strategies.plugins import DEFAULT_STRATEGIES
+    for seed in range(15):
+        closes, highs, lows, vols = fixture_candles(n=300, seed=seed)
+        ctx = StrategyContext("x", "BTCUSDT", "crypto", closes, highs, lows, vols, 0.02, 100_000,
+                              funding_rate=0.0006, open_interest_change=0.05)
+        for st in DEFAULT_STRATEGIES:
+            sig = st.analyze(ctx)
+            assert sig is None or sig.stop_loss > 0

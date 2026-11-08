@@ -16,6 +16,18 @@ log = logging.getLogger("connectors")
 
 TOKENIZED_GOLD = {"PAXG", "XAUT"}
 
+# حالات التداول بين المنصات تختلف (Binance: TRADING، Bybit: Trading، OKX: live، MEXC: 1/ENABLED)
+_TRADING_STATES = {"trading", "live", "1", "enabled"}
+
+
+def normalize_status(raw: object) -> str:
+    """يوحّد حالة الأداة إلى TRADING أو قيمتها الأصلية — حتى لا تُستبعد منصات كاملة بسبب اختلاف الصياغة."""
+    return "TRADING" if str(raw).strip().lower() in _TRADING_STATES else str(raw)
+
+
+class SourceRestricted(RuntimeError):
+    """المنصة تقيّد المصدر (403/451، غالباً حجب جغرافي لعنوان الخادم) — لا فائدة من إعادة المحاولة."""
+
 
 class PublicConnector(ABC):
     """قاعدة موصل عام. لا يطلب مفاتيح أبداً لأي نقطة عامة."""
@@ -55,10 +67,12 @@ class PublicConnector(ABC):
                         reason=f"HTTP {r.status_code}: المصدر مقيد بدون مفاتيح",
                         last_good_ts=self.health.last_good_ts,
                     )
-                    raise RuntimeError(self.health.reason)
+                    raise SourceRestricted(self.health.reason)
                 r.raise_for_status()
                 self.backoff.reset()
                 return r.json()
+            except SourceRestricted:
+                raise  # حجب دائم — فشل فوري بدل 6 محاولات انتظار
             except (httpx.HTTPError, RuntimeError) as exc:
                 wait = self.backoff.next()
                 log.warning("%s: %s محاولة %d — تراجع %.1fs", self.exchange, exc, attempt + 1, wait)
@@ -74,9 +88,9 @@ def classify(base: str, quote: str, symbol: str) -> str:
     from app.models import InstrumentClass
 
     if base in TOKENIZED_GOLD:
-        return InstrumentClass.TOKENIZED_GOLD
+        return InstrumentClass.TOKENIZED_GOLD.value
     if symbol.startswith("XAU") and quote in ("USD", "USDT", "USDC"):
-        return InstrumentClass.GOLD_DERIVATIVE
+        return InstrumentClass.GOLD_DERIVATIVE.value
     if base == "XAUUSD":
-        return InstrumentClass.SPOT_XAUUSD
-    return InstrumentClass.CRYPTO
+        return InstrumentClass.SPOT_XAUUSD.value
+    return InstrumentClass.CRYPTO.value

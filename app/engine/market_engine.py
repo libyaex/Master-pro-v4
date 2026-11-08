@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from app.connectors.base import normalize_status
 from app.connectors.binance import BinanceFutures, BinanceSpot
 from app.connectors.bybit import BybitLinear, BybitSpot
 from app.connectors.mexc import MEXCPublic, mexc_futures_unavailable
@@ -45,6 +46,7 @@ class MarketEngine:
         results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
         seen: set[tuple[str, str]] = set()
+        refreshed: set[str] = set()   # المنصات التي نجح استكشافها هذه الجولة فقط
         for (name, _), res in zip(tasks.items(), results):
             if isinstance(res, Exception):
                 reason = str(res)
@@ -56,17 +58,19 @@ class MarketEngine:
                 log.warning("مصدر غير متوفر: %s — %s", name, reason)
                 continue
             self.health[name] = SourceHealth(source=name, available=True, last_good_ts=utcnow())
+            refreshed.add(self.connectors[name].exchange)
             for row in res:
                 key = (row["exchange"], row["symbol"])
                 seen.add(key)
+                row = {**row, "status": normalize_status(row.get("status", ""))}
                 spec = InstrumentSpec(**row)
                 if key not in self.instruments:
                     diff.new_listings.append(spec)
                 self.instruments[key] = spec
 
-        # إلغاءات الإدراج
+        # إلغاءات الإدراج — فقط للمنصات التي نجح استكشافها؛ فشل مصدر مؤقت ليس إلغاء إدراج
         for key, spec in list(self.instruments.items()):
-            if key not in seen:
+            if key not in seen and spec.exchange in refreshed:
                 diff.delistings.append(spec)
                 del self.instruments[key]
 

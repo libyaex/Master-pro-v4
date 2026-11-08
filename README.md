@@ -20,6 +20,10 @@ python -m app.main        # يعمل بدون أي مفاتيح — بيانات
 
 افتح `http://127.0.0.1:8000` — الواجهة PWA عربية RTL (اختيار PWA لأنها أخف وأسرع نشراً من Flutter بلا toolchain).
 
+## النشر على Railway
+
+راجع [RAILWAY.md](RAILWAY.md) — `Dockerfile` + `railway.json` جاهزان، بلا أي متغيرات بيئة.
+
 ## Structure
 
 ```

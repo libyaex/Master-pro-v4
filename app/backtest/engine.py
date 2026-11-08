@@ -121,13 +121,16 @@ class Backtester:
 
     @staticmethod
     def monte_carlo(trades: np.ndarray, iters: int = 1000, risk_pct: float = 0.005) -> dict:
-        """إعادة عينو ترتيب الصفقات — توزيع drawdown ومخاطر الذيل."""
+        """إعادة عينة bootstrap (مع الإرجاع) للصفقات — توزيع النتيجة النهائية وdrawdown ومخاطر الذيل.
+
+        ملاحظة: إعادة ترتيب نفس الصفقات (permutation) تعطي نفس الناتج النهائي دائماً لأن الضرب تبادلي،
+        لذلك نستخدم bootstrap ليكون للنتيجة النهائية توزيع حقيقي."""
         if trades.size == 0:
             return {"ok": False}
         rng = np.random.default_rng(7)
         finals, max_dds = [], []
         for _ in range(iters):
-            seq = rng.permutation(trades)
+            seq = rng.choice(trades, size=trades.size, replace=True)
             eq = np.cumprod(1 + seq * risk_pct)
             peak = np.maximum.accumulate(eq)
             max_dds.append(float((1 - eq / peak).max()))

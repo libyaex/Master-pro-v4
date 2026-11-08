@@ -52,16 +52,17 @@ class BinanceFutures(BinanceSpot):
         for s in data.get("symbols", []):
             if s.get("quoteAsset") != "USDT":
                 continue
-            tick = float(s.get("filters", [{}])[0].get("tickSize", 0.01) or 0.01)
+            filters = {f["filterType"]: f for f in s.get("filters", [])}
+            tick = float(filters.get("PRICE_FILTER", {}).get("tickSize", 0.01) or 0.01)
+            lot = float(filters.get("LOT_SIZE", {}).get("stepSize", 0.001) or 0.001)
+            min_not = filters.get("MIN_NOTIONAL", {}).get("notional", 5.0)
             out.append({
                 "exchange": self.exchange, "symbol": s["symbol"], "base": s["baseAsset"],
                 "quote": s["quoteAsset"],
                 "instrument_class": classify(s["baseAsset"], s["quoteAsset"], s["symbol"]),
                 "status": s.get("status", ""), "market_type": s.get("contractType", "PERPETUAL"),
-                "tick_size": tick, "lot_step": float(s.get("stepSize", 0.001)),
-                "min_notional": float(s.get("filters", [{}])[0].get("minNotional", 5.0)),
-                "contract_size": float(s.get("contractType") == "PERPETUAL" and 1 or 1),
-                "raw_symbol": s["symbol"],
+                "tick_size": tick, "lot_step": lot, "min_notional": float(min_not or 5.0),
+                "contract_size": 1.0, "raw_symbol": s["symbol"],
             })
         return out
 

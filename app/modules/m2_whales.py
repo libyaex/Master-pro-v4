@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -34,7 +36,7 @@ class BookIntentEvent:
     price: float
     size_delta: float
     action: str                   # appeared | refilled | pulled
-    ts=field(default_factory=utcnow)
+    ts: datetime = field(default_factory=utcnow)
     label: str = "order_book_event_intent_unconfirmed"
 
 
@@ -46,7 +48,7 @@ class AccumulationSignal:
     cum_delta: float
     evidence_ar: str
     confidence: float
-    ts=field(default_factory=utcnow)
+    ts: datetime = field(default_factory=utcnow)
 
 
 class WhaleWatcher:
@@ -79,7 +81,12 @@ class WhaleWatcher:
                 old = prev_map.get(price, 0.0)
                 delta = size - old
                 if abs(delta) >= big_size:
-                    action = "appeared" if old == 0 else ("pulled" if delta < 0 else "refilled")
+                    if delta < 0:
+                        action = "pulled"
+                    elif old < big_size:
+                        action = "appeared"      # أمر كبير لم يكن موجوداً قبل لحظة
+                    else:
+                        action = "refilled"      # كان كبيراً أصلاً وأُعيدت تعبئته
                     events.append(BookIntentEvent(
                         exchange=curr.exchange, symbol=curr.symbol, side=side,
                         price=price, size_delta=delta, action=action,

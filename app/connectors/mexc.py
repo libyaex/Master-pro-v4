@@ -12,6 +12,17 @@ from app.connectors.base import PublicConnector, classify
 from app.models import SourceHealth
 
 
+def _precision_to_step(value: object, default: float) -> float:
+    """MEXC يرجع الدقة أحياناً كعدد خانات (2) وأحياناً كخطوة نصية ("0.0001") — نقبل الصيغتين."""
+    try:
+        num = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    if num <= 0:
+        return default
+    return num if num < 1 else float(10 ** -int(num))
+
+
 class MEXCPublic(PublicConnector):
     exchange = "mexc"
     base_url = "https://api.mexc.com"
@@ -27,8 +38,8 @@ class MEXCPublic(PublicConnector):
                 "quote": s["quoteAsset"],
                 "instrument_class": classify(s["baseAsset"], s["quoteAsset"], s["symbol"]),
                 "status": s.get("status", ""), "market_type": "spot",
-                "tick_size": float(s.get("quoteAssetPrecision", 2) and 10 ** -s.get("quoteAssetPrecision", 2) or 0.01),
-                "lot_step": float(10 ** -s.get("baseSizePrecision", 3)),
+                "tick_size": _precision_to_step(s.get("quoteAssetPrecision"), 0.01),
+                "lot_step": _precision_to_step(s.get("baseSizePrecision", s.get("baseAssetPrecision")), 0.001),
                 "min_notional": 0.0, "contract_size": 1.0, "raw_symbol": s["symbol"],
             })
         return out

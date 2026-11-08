@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import os
 import sqlite3
 import time
 import uuid
@@ -70,16 +72,16 @@ class Job:
     attempts: int
     idempotency: str
     lease_until: Optional[float]
-    last_error: Optional[str]
+    last_error: Optional[str] = None
 
 
 class DurableQueue:
     """طابور متين على SQLite — يعمل أيضاً بعد إعادة تشغيل العملية."""
 
     def __init__(self, db_path: str = "data/master_pro.db") -> None:
-        import os
-
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        folder = os.path.dirname(db_path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute(
@@ -106,15 +108,15 @@ class DurableQueue:
         return datetime.now(timezone.utc).isoformat()
 
     def enqueue(self, kind: str, payload: dict, idem: Optional[str] = None) -> Optional[str]:
-        key = idem or idempotency_key(kind, str(sorted(payload.items())))
+        key = idem or idempotency_key(kind, json.dumps(payload, sort_keys=True, default=str))
         try:
-            cur = self.conn.execute(
+            self.conn.execute(
                 "INSERT INTO jobs (id, kind, payload, priority, state, attempts, idempotency, created_ts, updated_ts) "
                 "VALUES (?, ?, ?, ?, 'queued', 0, ?, ?, ?)",
-                (uuid.uuid4().hex, kind, str(payload), PRIORITY.get(kind, 9), key, self._now(), self._now()),
+                (uuid.uuid4().hex, kind, json.dumps(payload, default=str), PRIORITY.get(kind, 9), key, self._now(), self._now()),
             )
             self.conn.commit()
-            return cur.lastrowid and key or key
+            return key
         except sqlite3.IntegrityError:
             return None  # idempotent: نفس المهمة موجودة بالفعل — لا تكرار
 
@@ -134,7 +136,7 @@ class DurableQueue:
         )
         self.conn.commit()
         return Job(
-            id=row[0], kind=row[1], payload=eval(row[2]) if row[2].startswith("{") else {},
+            id=row[0], kind=row[1], payload=json.loads(row[2]) if row[2] else {},
             priority=row[3], state=JobState.LEASED, attempts=row[5],
             idempotency=row[6], lease_until=row[7],
         )

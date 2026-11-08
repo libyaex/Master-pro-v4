@@ -59,6 +59,7 @@ RATE_LIMITS: dict[str, float] = {
     "binance_spot": 10.0,
     "binance_futures": 10.0,
     "bybit": 8.0,
+    "bybit_linear": 8.0,
     "okx": 6.0,
     "mexc": 5.0,
     "coingecko": 0.1,      # ~6/دقيقة

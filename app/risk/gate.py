@@ -13,7 +13,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 
-from app.models import InstrumentSpec, utcnow
+from app.models import InstrumentSpec
 
 
 @dataclass
@@ -62,7 +62,6 @@ class RiskDecision:
     approved: bool
     reason_ar: str
     position_size: float = 0.0
-    ts=utcnow().isoformat() if False else None  # يُضبط أدناه
 
 
 def _risk_amount_to_size(risk_amount: float, entry: float, stop: float, spec: InstrumentSpec) -> float:
@@ -72,7 +71,8 @@ def _risk_amount_to_size(risk_amount: float, entry: float, stop: float, spec: In
         return 0.0
     raw = risk_amount / per_unit
     step = spec.lot_step
-    size = math.floor(raw / step) * step
+    # epsilon: يمنع بتر الأحجام الدقيقة بسبب خطأ الفاصلة العائمة (مثل 19.9999999 بدل 20)
+    size = math.floor(raw / step + 1e-9) * step
     # فحص الحد الأدنى notional
     if spec.min_notional and size * entry < spec.min_notional:
         return 0.0
