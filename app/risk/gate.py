@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from app.models import InstrumentSpec, utcnow
@@ -62,17 +62,23 @@ class RiskDecision:
     approved: bool
     reason_ar: str
     position_size: float = 0.0
-    ts=utcnow().isoformat() if False else None  # يُضبط أدناه
+    ts: str = field(default_factory=lambda: utcnow().isoformat())
 
 
 def _risk_amount_to_size(risk_amount: float, entry: float, stop: float, spec: InstrumentSpec) -> float:
-    """حجم دقيق بقواعد lot step/tick — لا تقريب عشوائي."""
+    """حجم دقيق بقواعد lot step/tick — لا تقريب عشوائي.
+
+    إبسيلون نسبي 1e-6 قبل floor: بدونه 20/0.0001 = 199999.99999999997
+    في الثنائيات فيُقصّ الحجم الصحيح (19.9999 بدل 20.0).
+    """
     per_unit = abs(entry - stop)
     if per_unit <= 0:
         return 0.0
     raw = risk_amount / per_unit
     step = spec.lot_step
-    size = math.floor(raw / step) * step
+    if step <= 0:
+        return 0.0
+    size = math.floor(raw / step + 1e-6) * step
     # فحص الحد الأدنى notional
     if spec.min_notional and size * entry < spec.min_notional:
         return 0.0
