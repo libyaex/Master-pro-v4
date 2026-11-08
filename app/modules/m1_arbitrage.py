@@ -4,7 +4,7 @@
 - أدوات متطابقة فقط (نفس الأصل + الفئة + عملة التسعير).
 - سير الدفترين فعلياً للعمق المطلوب — ليس سبريد اسمي.
 - تصنيف كل فرصة: معلوماتية (informational) أم قابلة للتنفيذ (executable) مع السبب.
-- الفرصة التي تحتاج تحويل أصول بين منصات = معلوماتية إلا بتمكين صريح للزوج.
+- الفرصة التي تحتاج تحويل أصول بين منصات = معلوماتية دائماً (بطيئة ومكلفة).
 - لا تنفيذ تلقائي إلا بتمكين صريح لكل زوج منصات من المستخدم.
 - السبريد النظري ليس ربحاً محققاً أبداً.
 """
@@ -96,42 +96,35 @@ class ArbitrageScanner:
                 if not buy_walk.sufficient_depth or not sell_walk.sufficient_depth:
                     continue
                 gross = (sell_walk.avg_price - buy_walk.avg_price) / buy_walk.avg_price
+                fees = self.taker_fees.get(buy_ex)
+                sell_fee = self.taker_fees.get(sell_ex)
                 latency_decay = recent_volatility * (self.latency_ms / 1000.0)
-                fee_buy = self.taker_fees.get(buy_ex)
-                fee_sell = self.taker_fees.get(sell_ex)
-                if fee_buy is None or fee_sell is None:
-                    # رسوم غير معروفة لمنصة واحدة على الأقل — معلوماتية دائماً بسبب واضح
+                if fees is None or sell_fee is None:
                     classification = "informational"
-                    reason = "رسوم taker غير معروفة لمنصة واحدة على الأقل — لا يمكن التأكد من قابلية التنفيذ"
+                    reason = "رسوم taker غير معروفة لمنصة واحدة على الأقل — لا يمكن التأكد من صافي الربح أو قابلية التنفيذ"
                     net = None
                 else:
-                    fees = fee_buy + fee_sell
-                    net = gross - fees - latency_decay
-                    pair_enabled = (buy_ex, sell_ex) in self.auto_execute_pairs
-                    if net > 0:
-                        # عبر منصات يتطلب تواجداً مسبقاً أو تحويل أصول (بطيء) — معلوماتي إلا بتمكين صريح
-                        classification = "executable" if pair_enabled else "informational"
-                        reason = (
-                            f"سبريد صافٍ موجب {net:.4%} بعد الرسوم ({fees:.4%}) وتخفيض الكمون "
-                            f"({latency_decay:.4%})، لكن يتطلب تواجداً مسبقاً على الجانبين أو تحويل أصول "
-                            f"بين المنصات — التنفيذ الآلي {'مُمكّن' if pair_enabled else 'غير مُمكّن'}"
-                        )
-                    else:
-                        classification = "informational"
-                        reason = f"السبريد الصافي سالب/صفر ({net:.4%}) بعد الرسوم والكمون"
+                    total_fees = fees + sell_fee
+                    net = gross - total_fees - latency_decay
+                    classification = "informational"
+                    reason = (
+                        f"سبريد صافٍ تقديري {net:.4%} بعد الرسوم والكمون؛ "
+                        "الفرصة معلوماتية وتتطلب تواجداً مسبقاً للأصول على الجانبين"
+                    )
                 gross_pct = gross * 100
                 if best is None or gross_pct > best[0]:
                     best = (gross_pct, ArbOpportunity(
                         base=base, quote=quote, instrument_class=instrument_class,
                         buy_exchange=buy_ex, sell_exchange=sell_ex, qty=qty,
                         gross_spread_pct=round(gross * 100, 4),
-                        net_spread_pct=round((net if net is not None else gross) * 100, 4),
+                        net_spread_pct=round(net * 100, 4) if net is not None else 0.0,
                         classification=classification, reason_ar=reason,
                         components={
                             "buy_avg_price": buy_walk.avg_price, "sell_avg_price": sell_walk.avg_price,
-                            "fees_known": fee_buy is not None and fee_sell is not None,
+                            "fees_pct": ((fees + sell_fee) * 100) if fees is not None and sell_fee is not None else None,
                             "latency_decay_pct": latency_decay * 100,
                             "fresh_books": list(fresh_books.keys()),
+                            "net_spread_available": net is not None,
                         },
                     ))
         return best[1] if best else None
