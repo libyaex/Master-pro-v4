@@ -1,1 +1,1 @@
-استراتيجيات — إضافات analyze(context) -> SignalRecord | None.
+# استراتيجيات — إضافات analyze(context) -> SignalRecord | None.
