@@ -1,6 +1,5 @@
-# ملف شاهد تشخيصي — عزل سبب فشل الجمع (collection)
+# فحص سلامة سريع — يُشغَّل دائماً أولاً
 import numpy as np
-import pytest
 
 
 def test_numpy_ok():
