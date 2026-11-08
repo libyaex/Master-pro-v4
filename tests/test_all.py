@@ -1,12 +1,12 @@
 """اختبارات شاملة — بيانات شواهد موسومة فقط (fixture)، لا بيانات مختلقة في مسارات الإنتاج."""
 import math
-from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from app.engine import indicators as ind
-from app.models import (BookLevel, BookSnapshot, Candle, InstrumentClass,
+from app.models import (BookLevel, BookSnapshot, InstrumentClass,
                         InstrumentSpec, Trade, utcnow)
 from app.execution.queue import DurableQueue, OrderState, OrderTracker
 from app.modules.m1_arbitrage import ArbitrageScanner, walk_book
@@ -16,11 +16,12 @@ from app.modules.m5_adaptive import AdaptiveEvaluator, walk_forward_sanity
 from app.modules.m6_ranking import OpportunityRanker
 from app.risk.gate import OrderRequest, RiskConfig, RiskGate
 from app.strategies.signal_record import EvidenceItem, SignalRecord
-from app.strategies.plugins import RangeBBRSI, StrategyContext, TrendPullback
+from app.strategies.plugins import StrategyContext, TrendPullback
 from app.execution.paper_fill import PaperFillModel
 from app.backtest.engine import Backtester
 
 FIXTURE_TAG = "fixture"  # كل بيانات هذه الملفات شواهد اختبار موسومة
+REPO_ROOT = Path(__file__).parent.parent
 
 
 def fixture_spec(symbol="BTCUSDT", exchange="binance_spot", cls=InstrumentClass.CRYPTO):
@@ -113,9 +114,10 @@ def _book(exchange, bid, ask, ts=None):
 
 
 def test_walk_book_real_depth():
+    # 1.0 وحدة @100 + 0.5 وحدة @101 → متوسط (100 + 50.5)/1.5 = 100.333…
     levels = [BookLevel(price=100.0, size=1.0), BookLevel(price=101.0, size=1.0)]
     r = walk_book(levels, 1.5)
-    assert r.avg_price == pytest.approx(100.5)
+    assert r.avg_price == pytest.approx(100.0 + 0.5 * 101.0 / 1.5)
     assert r.sufficient_depth
 
 
@@ -135,6 +137,8 @@ def test_arb_executable_needs_fees_known():
 
 
 def test_arb_stale_book_excluded():
+    from datetime import timedelta
+
     scanner = ArbitrageScanner(taker_fees={"a": 0.0, "b": 0.0}, freshness_ms=10)
     old = utcnow() - timedelta(seconds=5)
     opp = scanner.compare("BTC", "USDT", "crypto", 1.0, {
@@ -167,12 +171,14 @@ def test_whale_large_trade_detected():
 
 
 def test_whale_unfilled_order_not_a_trade():
+    """أمر ضخم على سعر جديد (appeared) بلا أي تنفيذ = نية غير مؤكدة، ليس تداولاً."""
     w = WhaleWatcher()
     prev = _book("x", 100.0, 101.0)
     curr = BookSnapshot(exchange="x", symbol="BTCUSDT", ts=utcnow(),
                         bids=[BookLevel(price=100.0, size=2.0)],
-                        asks=[BookLevel(price=101.0, size=5000.0)])  # أمر ضخم ظهر بلا تنفيذ
+                        asks=[BookLevel(price=102.0, size=5000.0)])  # سعر جديد لم يكن موجوداً
     events = w.book_events(prev, curr, big_size=1000.0)
+    assert events, "يجب رصد الأمر الضخم الجديد"
     assert all("unconfirmed" in e.label for e in events)  # نية غير مؤكدة — ليس تداولاً
     flags = w.detect_spoof_possible(events, fills_at_prices=set())
     assert any("ممكن" in f for f in flags)  # يوسم "ممكن" فقط
@@ -406,7 +412,7 @@ def test_backtester_insufficient_history_says_so():
     assert "لا نتائج تُختلق" in rep.note_ar
 
 
-def test_backtester_runs_and_reports(tmp_path=None):
+def test_backtester_runs_and_reports():
     closes, highs, lows, vols = fixture_candles(n=400)
     ctx = StrategyContext("x", "BTCUSDT", "crypto", closes, highs, lows, vols,
                           0.02, 100_000)
@@ -417,7 +423,6 @@ def test_backtester_runs_and_reports(tmp_path=None):
 
 
 def test_monte_carlo_outputs():
-    closes, _, _, _ = fixture_candles()
     bt = Backtester()
     res = bt.monte_carlo(np.array([1.0, -0.5, 1.2, -0.3, 0.8]), iters=200)
     assert res["ok"] and res["final_p50"] != res["final_p95"]
@@ -432,8 +437,9 @@ def test_instrument_classes_never_mixed():
 
 
 def test_no_guaranteed_profit_claims_in_code():
-    """سلامة: لا ادعاء ربح مضمون في أي ملف مصدر."""
-    import subprocess
-    r = subprocess.run(["grep", "-rni", "ضمان الربح", "app/", "README.md"],
-                       capture_output=True, text=True)
-    assert r.stdout.strip() == ""
+    """سلامة: لا ادعاء ربح مضمون في أي ملف مصدر (بحث UTF-8 ببايثون لا grep)."""
+    banned = ("ضمان الربح", "guaranteed profit", "أرباح مضمونة", "ربح مضمون")
+    for path in list((REPO_ROOT / "app").rglob("*.py")) + [REPO_ROOT / "README.md"]:
+        text = path.read_text(encoding="utf-8")
+        for phrase in banned:
+            assert phrase not in text, f"عبارة ممنوعة في {path}: {phrase}"
