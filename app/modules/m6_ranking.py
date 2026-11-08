@@ -1,12 +1,11 @@
-"""M6 — ترتيب الفرص بدرجة شفافة وقابلة للضبط.
-
-- كل عنصر يعرض مكونات درجته وسبب ترتيبه.
-- بيانات حرجة ناقصة = ترتيب أدنى أو استبعاد + وسم "غير متوفر".
-- الترتيب معلوماتي ولا يتجاوز طبقة المخاطر أبداً.
-"""
+# M6 — ترتيب الفرص بدرجة شفافة وقابلة للضبط.
+# - كل عنصر يعرض مكونات درجته وسبب ترتيبه.
+# - بيانات حرجة ناقصة = ترتيب أدنى أو استبعاد + وسم غير متوفر.
+# - الترتيب معلوماتي ولا يتجاوز طبقة المخاطر أبداً.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional
 
 from app.models import utcnow
@@ -23,37 +22,36 @@ DEFAULT_WEIGHTS = {
 
 @dataclass
 class RankedItem:
-    kind: str                          # arbitrage | whale | breakout | listing | signal
+    kind: str
     label: str
     score: float
-    components: dict[str, float] = field(default_factory=dict)
-    unavailable_reasons: list[str] = field(default_factory=list)
+    components: dict = field(default_factory=dict)
+    unavailable_reasons: list = field(default_factory=list)
     reason_ar: str = ""
-    ts=field(default_factory=utcnow)
+    ts: datetime = field(default_factory=utcnow)
 
 
 class OpportunityRanker:
-    def __init__(self, weights: Optional[dict[str, float]] = None) -> None:
+    def __init__(self, weights=None) -> None:
         w = {**DEFAULT_WEIGHTS, **(weights or {})}
         total = sum(w.values())
         self.weights = {k: v / total for k, v in w.items()}
 
-    def rank(self, items: list[dict]) -> list[RankedItem]:
-        """items: قواميس بمفاتيح raw_components وmetadata. الدرجات 0-1 لكل مكون."""
-        ranked: list[RankedItem] = []
+    def rank(self, items):
+        # items: قواميس بمفاتيح raw_components وmetadata. الدرجات 0-1 لكل مكون.
+        ranked = []
         for it in items:
             raw = it.get("raw_components", {})
-            comps: dict[str, float] = {}
-            missing: list[str] = []
+            comps = {}
+            missing = []
             for key, weight in self.weights.items():
                 val = raw.get(key)
-                if val is None or (isinstance(val, float) and val != val):  # None أو NaN
+                if val is None or (isinstance(val, float) and val != val):
                     missing.append(key)
                     comps[key] = 0.0
                 else:
                     comps[key] = float(val) * weight
             score = sum(comps.values()) * 100
-            # بيانات حرجة ناقصة: ترتيب أدنى + وسم غير متوفر
             critical = {"liquidity", "execution_feasibility"}
             excluded = bool(critical & set(missing))
             if excluded:
@@ -61,10 +59,14 @@ class OpportunityRanker:
             ranked.append(RankedItem(
                 kind=it.get("kind", "unknown"), label=it.get("label", ""),
                 score=round(score, 2), components=comps,
-                unavailable_reasons=[f"غير متوفر: {m}" for m in missing],
+                unavailable_reasons=["غير متوفر: " + m for m in missing],
                 reason_ar=(
-                    f"استُبعد جزئياً لنقص بيانات حرجة ({', '.join(missing)})" if excluded and missing
-                    else f"درجة أعلى من: {', '.join(f'{k}={v:.2f}' for k, v in sorted(comps.items(), key=lambda x: -x[1])[:3])}"
+                    "استُبعد جزئياً لنقص بيانات حرجة (" + ", ".join(missing) + ")"
+                    if excluded and missing
+                    else "درجة أعلى من: " + ", ".join(
+                        k + "=" + format(v, ".2f")
+                        for k, v in sorted(comps.items(), key=lambda x: -x[1])[:3]
+                    )
                 ),
             ))
         ranked.sort(key=lambda r: -r.score)
