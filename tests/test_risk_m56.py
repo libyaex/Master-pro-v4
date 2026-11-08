@@ -1,8 +1,9 @@
-# M2 الحيتان فقط — عزل
+# M2 الحيتان (أخضر) + M3 اختبار الإدراج الجديد فقط
 import pytest
 
-from app.models import BookLevel, BookSnapshot, Trade, utcnow
+from app.models import BookLevel, BookSnapshot, InstrumentClass, InstrumentSpec, Trade, utcnow
 from app.modules.m2_whales import WhaleWatcher
+from app.modules.m3_listing_breakout import ListingBreakoutScanner
 
 
 def _book(exchange, bid, ask, ts=None):
@@ -47,3 +48,19 @@ def test_accumulation_from_executed_flow():
     w = WhaleWatcher()
     sig = w.accumulation(buys + sells)
     assert sig.direction == "accumulation"
+
+
+def fixture_spec(symbol="NEWUSDT"):
+    return InstrumentSpec(
+        exchange="binance_spot", symbol=symbol, base=symbol[:-4], quote="USDT",
+        instrument_class=InstrumentClass.CRYPTO, status="TRADING", market_type="spot",
+        tick_size=0.01, lot_step=0.0001, min_notional=5.0,
+    )
+
+
+def test_listing_diff_detects_new():
+    sc = ListingBreakoutScanner()
+    first = sc.diff_new_listings([fixture_spec("NEWUSDT")])
+    assert len(first) == 1
+    again = sc.diff_new_listings([fixture_spec("NEWUSDT")])
+    assert len(again) == 0
