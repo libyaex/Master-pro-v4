@@ -1,13 +1,16 @@
-# M3 — ماسح الإدراجات الجديدة والاختراقات.
-# قواعد:
-# - كشف إدراجات جديدة من فروق استكشاف السوق.
-# - الاختراق = إغلاق خارج النطاق + زيادة حجم. الذيل وحده ليس اختراقاً.
-# - Pump مشبوه: صعود سريع + عمق رقيق + سبريد واسع + حركة بمنصة واحدة بلا تأكيد.
+"""M3 — ماسح الإدراجات الجديدة والاختراقات.
+
+قواعد:
+- كشف إدراجات جديدة من فروق استكشاف السوق.
+- الاختراق = إغلاق خارج النطاق + زيادة حجم (+ إعادة اختبار اختيارية). الذيل وحده ليس اختراقاً.
+- Pump مشبوه: صعود سريع + عمق رقيق + سبريد واسع + حركة بمنصة واحدة بلا تأكيد — وسم خطر وحظر تداول آلي.
+"""
 from __future__ import annotations
+
+from datetime import datetime
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Optional
 
 import numpy as np
@@ -26,8 +29,8 @@ class BreakoutEvent:
     close: float
     volume_ratio: float
     retest_held: Optional[bool]
-    risk_label: str = "normal"
-    evidence_ar: list = field(default_factory=list)
+    risk_label: str = "normal"          # normal | suspicious
+    evidence_ar: list[str] = field(default_factory=list)
     ts: datetime = field(default_factory=utcnow)
 
 
@@ -39,29 +42,30 @@ class NewListingEvent:
 
 
 class ListingBreakoutScanner:
-    def __init__(self, auto_trade_blocklist=None) -> None:
-        self.known_symbols = set()
+    def __init__(self, auto_trade_blocklist: Optional[set] = None) -> None:
+        self.known_symbols: set[tuple[str, str]] = set()
         self.blocklist = auto_trade_blocklist if auto_trade_blocklist is not None else set()
 
-    def diff_new_listings(self, current):
+    def diff_new_listings(self, current: list[InstrumentSpec]) -> list[NewListingEvent]:
         events = []
         for s in current:
             key = (s.exchange, s.symbol)
             if key not in self.known_symbols:
                 events.append(NewListingEvent(
                     spec=s,
-                    note_ar=(
-                        f"إدراج جديد مكتشف على {s.exchange}: {s.symbol} "
-                        f"(فئة {s.instrument_class.value}) — بيانات أولية قليلة، حذر من السبريد والعمق"
-                    ),
+                    note_ar=f"إدراج جديد مكتشف على {s.exchange}: {s.symbol} (فئة {s.instrument_class.value}) — بيانات أولية قليلة، حذر من السبريد والعمق",
                 ))
                 if s.status != "TRADING":
                     self.blocklist.add(key)
         self.known_symbols = {(s.exchange, s.symbol) for s in current}
         return events
 
-    def breakout(self, exchange, symbol, closes, highs, lows, volumes,
-                 depth_usd, spread_pct, cross_exchange_moves=None):
+    def breakout(
+        self, exchange: str, symbol: str,
+        closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, volumes: np.ndarray,
+        depth_usd: float, spread_pct: float,
+        cross_exchange_moves: Optional[dict[str, float]] = None,
+    ) -> Optional[BreakoutEvent]:
         if len(closes) < 60:
             return None
         # انضغاط تقلب: Bollinger bandwidth وATR عند مئويات دنيا
@@ -80,17 +84,15 @@ class ListingBreakoutScanner:
         broke_up = close > rng_high and closes[-2] <= rng_high
         broke_down = close < rng_low and closes[-2] >= rng_low
         if not (broke_up or broke_down) or vol_ratio < 1.5:
-            return None
+            return None  # الذيل وحده ليس اختراقاً: نريد إغلاقاً خارج النطاق + حجم
         # retest اختياري: شمعة سابقة عادت للنطاق ثم أغلقت خارجه
-        if broke_up:
-            retest = bool(np.any(np.abs(closes[-3:-1] - rng_high) / rng_high < 0.002))
-        else:
-            retest = bool(np.any(np.abs(closes[-3:-1] - rng_low) / rng_low < 0.002))
+        retest = bool(np.any(np.abs(closes[-3:-1] - rng_high) / rng_high < 0.002)) if broke_up else \
+                 bool(np.any(np.abs(closes[-3:-1] - rng_low) / rng_low < 0.002))
         direction = "up" if broke_up else "down"
         risk = "normal"
         evidence = [
             f"إغلاق {'فوق' if broke_up else 'تحت'} نطاق [{rng_low:.4f}, {rng_high:.4f}] عند {close:.4f}",
-            f"حجم الاختراق {vol_ratio:.1f}x متوسط 20 شمعة",
+            f"حجم الاختراق {vol_ratio:.1f}× متوسط 20 شمعة",
         ]
         # حركة بمنصة واحدة بلا تأكيد عبر منصات + عمق رقيق + سبريد واسع = pump مشبوه
         others = cross_exchange_moves or {}
