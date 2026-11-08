@@ -1,25 +1,25 @@
 """الخادم الرئيسي — FastAPI. يبدأ بأمر واحد بلا أي مفاتيح.
 
+متوافق مع: تشغيل محلي/VPS (uvicorn) وVercel serverless (api/index.py يعيد تصدير app).
+في بيئة serverless يبدأ الاستكشاف كسولاً عند أول طلب (SERVERLESS_MODE=auto).
+
 نقاط النهاية:
 - / — الواجهة العربية RTL (PWA)
 - /api/health/sources — صحة كل مصدر (متوفر/غير متوفر بسبب + آخر صالح)
 - /api/markets — اكتشاف الأسواق الديناميكي
 - /api/costs — شاشة تدقيق التكلفة والتبعيات
 - /api/rank — ترتيب الفرص (M6)
-- /api/arb/{base} — ماسح التحكيم (M1)
-- /api/signals — إشارات مفسرة عربياً (M4)
-- /api/whale/{symbol} — ذكاء الحيتان (M2)
-- /api/listings — إدراجات واختراقات (M3)
-- /api/risk — إعدادات وحالة بوابة المخاطر
+- /api/refresh — استكشاف يدوي (POST)
+- /api/audit/assumptions — ASSUMPTIONS.md
 """
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
 
 from app.engine.market_engine import MarketEngine
 from app.models import SourceHealth, utcnow
@@ -33,17 +33,31 @@ app = FastAPI(title="Master-pro-v4", version="4.0.0",
 engine = MarketEngine()
 
 WEB_DIR = Path(__file__).parent / "web"
+ROOT_DIR = Path(__file__).parent.parent          # جذر المستودع — يعمل محلياً وعلى Vercel
+SERVERLESS = os.environ.get("VERCEL", "") != ""  # Vercel يضبط VERCEL=1 تلقائياً
 
 
-@app.on_event("startup")
-async def startup() -> None:
-    log.info("بدء المحرك — استكشاف أسواق عام بدون أي مفاتيح")
+async def _bootstrap_discovery(force: bool = False) -> None:
+    """استكشاف كسول: مرة واحدة فقط، وعند الطلب. لا يمنع الإقلاع أبداً.
+
+    في serverless قد لا يكون هناك اتصال صادر أو قد يكون بطيئاً — المصادر
+    تظهر حينها "غير متوفر" بسبب واضح، وهذا سلوك مقصود لا خطأ.
+    """
+    if not force and engine.instruments:
+        return
     try:
         diff = await engine.refresh_discovery()
         log.info("أدوات: %d | إدراجات جديدة: %d | إلغاءات: %d",
                  len(engine.instruments), len(diff.new_listings), len(diff.delistings))
     except Exception as exc:  # لا نمنع الإقلاع — الواجهة تعمل والمصادر تظهر غير متوفرة
-        log.warning("فشل الاستكشاف الأولي: %s — ستظهر المصادر غير متوفرة", exc)
+        log.warning("فشل الاستكشاف: %s — ستظهر المصادر غير متوفرة", exc)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    if not SERVERLESS:
+        # محلي/VPS: استكشاف عند الإقلاع. serverless: كسول عند أول طلب.
+        await _bootstrap_discovery()
 
 
 @app.get("/", include_in_schema=False)
@@ -54,11 +68,15 @@ async def index():
 @app.get("/api/health/sources", response_model=list[SourceHealth])
 async def health_sources():
     """صحة كل مصدر — غير المتوفر يظهر بسبب وآخر طابع صالح، دائماً."""
+    if SERVERLESS and not engine.instruments:
+        await _bootstrap_discovery()
     return engine.health_list()
 
 
 @app.get("/api/markets")
 async def markets(instrument_class: str = Query(default="crypto")):
+    if SERVERLESS and not engine.instruments:
+        await _bootstrap_discovery()
     members = engine.class_members(instrument_class)
     return {
         "instrument_class": instrument_class,
@@ -71,9 +89,8 @@ async def markets(instrument_class: str = Query(default="crypto")):
 @app.get("/api/costs")
 async def costs():
     """شاشة تدقيق التكلفة — تصنيف كل مكوّن ومصدر."""
-    from pathlib import Path as P
-
-    text = (P("COST_AUDIT.md")).read_text(encoding="utf-8") if P("COST_AUDIT.md").exists() else ""
+    p = ROOT_DIR / "COST_AUDIT.md"
+    text = p.read_text(encoding="utf-8") if p.exists() else ""
     return {"cost_audit_md": text[:20000], "ts": utcnow().isoformat()}
 
 
@@ -87,6 +104,7 @@ async def rank():
 
 @app.post("/api/refresh")
 async def refresh():
+    await _bootstrap_discovery(force=True)
     diff = await engine.refresh_discovery()
     return {
         "new_listings": [s.model_dump(mode="json") for s in diff.new_listings],
@@ -98,9 +116,7 @@ async def refresh():
 
 @app.get("/api/audit/assumptions")
 async def assumptions():
-    from pathlib import Path as P
-
-    p = P("ASSUMPTIONS.md")
+    p = ROOT_DIR / "ASSUMPTIONS.md"
     if not p.exists():
         raise HTTPException(404, "ASSUMPTIONS.md غير موجود")
     return {"content": p.read_text(encoding="utf-8")[:30000]}
@@ -108,12 +124,10 @@ async def assumptions():
 
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "ts": utcnow().isoformat()}
+    return {"ok": True, "serverless": SERVERLESS, "ts": utcnow().isoformat()}
 
 
 def main() -> None:
-    import os
-
     import uvicorn
 
     host = os.environ.get("APP_HOST", "127.0.0.1")
