@@ -1,6 +1,6 @@
-# فحص سلامة سريع — يُشغَّل دائماً أولاً
-import numpy as np
+# شاهد تشخيصي: الطبقة 1 — models فقط
+from app.models import BookLevel, BookSnapshot, InstrumentClass, InstrumentSpec, Trade, utcnow
 
 
-def test_numpy_ok():
-    assert np.array([1, 2]).sum() == 3
+def test_models_import_ok():
+    assert InstrumentClass.CRYPTO.value == "crypto"
