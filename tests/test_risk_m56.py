@@ -1,4 +1,4 @@
-# M2 الحيتان + M3 الاختراق
+# M2 الحيتان + M3 الاختراق — v2 تشخيصي
 import numpy as np
 import pytest
 
@@ -16,6 +16,7 @@ def _book(exchange, bid, ask, ts=None):
 
 
 def test_whale_large_trade_detected():
+    # تداول كبير واحد فقط يتجاوز الحد الأدنى 1M — نطاق 60 صغيراً كله 500$
     now = utcnow()
     trades = [Trade(exchange="x", symbol="BTCUSDT", trade_id=str(i), ts=now,
                     price=50000.0, size=0.01, aggressor="buy") for i in range(60)]
@@ -23,7 +24,8 @@ def test_whale_large_trade_detected():
                         price=50000.0, size=50.0, aggressor="buy"))
     w = WhaleWatcher(min_notional_usd=1_000_000)
     events = w.detect_large_trades(trades)
-    assert len(events) == 1 and events[0].notional_usd == pytest.approx(2_500_000)
+    assert len(events) == 1
+    assert events[0].notional_usd == pytest.approx(2_500_000)
 
 
 def test_whale_unfilled_order_not_a_trade():
@@ -97,5 +99,6 @@ def test_suspicious_pump_blocked():
     ev = sc.breakout("x", "TESTUSDT", closes, highs, lows, vols,
                      depth_usd=5_000, spread_pct=0.5,
                      cross_exchange_moves={"other": -0.01})
+    assert ev is not None
     assert ev.risk_label == "suspicious"
     assert ("x", "TESTUSDT") in sc.blocklist
