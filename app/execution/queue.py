@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import sqlite3
 import time
 import uuid
@@ -79,7 +80,7 @@ class DurableQueue:
     def __init__(self, db_path: str = "data/master_pro.db") -> None:
         import os
 
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute(
@@ -111,7 +112,7 @@ class DurableQueue:
             cur = self.conn.execute(
                 "INSERT INTO jobs (id, kind, payload, priority, state, attempts, idempotency, created_ts, updated_ts) "
                 "VALUES (?, ?, ?, ?, 'queued', 0, ?, ?, ?)",
-                (uuid.uuid4().hex, kind, str(payload), PRIORITY.get(kind, 9), key, self._now(), self._now()),
+                (uuid.uuid4().hex, kind, json.dumps(payload, ensure_ascii=False), PRIORITY.get(kind, 9), key, self._now(), self._now()),
             )
             self.conn.commit()
             return cur.lastrowid and key or key
@@ -121,7 +122,7 @@ class DurableQueue:
     def lease_next(self, lease_seconds: float = 30.0) -> Optional[Job]:
         now = time.time()
         row = self.conn.execute(
-            "SELECT id, kind, payload, priority, state, attempts, idempotency, lease_until "
+            "SELECT id, kind, payload, priority, state, attempts, idempotency, lease_until, last_error "
             "FROM jobs WHERE state='queued' OR (state='leased' AND lease_until < ?) "
             "ORDER BY priority ASC, created_ts ASC LIMIT 1",
             (now,),
@@ -134,9 +135,9 @@ class DurableQueue:
         )
         self.conn.commit()
         return Job(
-            id=row[0], kind=row[1], payload=eval(row[2]) if row[2].startswith("{") else {},
+            id=row[0], kind=row[1], payload=json.loads(row[2]) if row[2].startswith(("{", "[")) else {},
             priority=row[3], state=JobState.LEASED, attempts=row[5],
-            idempotency=row[6], lease_until=row[7],
+            idempotency=row[6], lease_until=row[7], last_error=row[8],
         )
 
     def complete(self, job_id: str) -> None:
