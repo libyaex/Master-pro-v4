@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -34,7 +36,7 @@ class BookIntentEvent:
     price: float
     size_delta: float
     action: str                   # appeared | refilled | pulled
-    ts=field(default_factory=utcnow)
+    ts: datetime = field(default_factory=utcnow)
     label: str = "order_book_event_intent_unconfirmed"
 
 
@@ -46,7 +48,7 @@ class AccumulationSignal:
     cum_delta: float
     evidence_ar: str
     confidence: float
-    ts=field(default_factory=utcnow)
+    ts: datetime = field(default_factory=utcnow)
 
 
 class WhaleWatcher:
@@ -96,7 +98,7 @@ class WhaleWatcher:
         """أنماط spoofing محتملة — يوسم 'ممكن' فقط: أوامر كبيرة وُضعت وأُلغيت بلا أي تنفيذ."""
         flags: list[str] = []
         for e in events:
-            if e.action in ("appeared", "pulled") and e.price not in fills_at_prices and abs(e.size_delta) > 0:
+            if e.action in ("appeared", "pulled", "refilled") and e.price not in fills_at_prices and abs(e.size_delta) > 0:
                 flags.append(
                     f"نمط spoofing ممكن (غير مؤكد): أمر كبير {e.action} عند {e.price} "
                     f"دون تنفيذ ملحوظ — حدث دفتر، نية غير مؤكدة"

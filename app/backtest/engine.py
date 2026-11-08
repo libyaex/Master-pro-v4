@@ -121,7 +121,12 @@ class Backtester:
 
     @staticmethod
     def monte_carlo(trades: np.ndarray, iters: int = 1000, risk_pct: float = 0.005) -> dict:
-        """إعادة عينو ترتيب الصفقات — توزيع drawdown ومخاطر الذيل."""
+        """إعادة عينو ترتيب الصفقات — توزيع drawdown ومخاطر الذيل.
+
+        ملاحظة رياضية: الناتج النهائي تحت مخاطرة جزئية ثابتة ثابت الترتيب
+        (عملية ضرب تجميعية)، فيتساوى p50 وp95 — توزيع المخاطر الحقيقي
+        يظهر في max_dd_p95 الذي يتأثر بالترتيب فعلاً.
+        """
         if trades.size == 0:
             return {"ok": False}
         rng = np.random.default_rng(7)

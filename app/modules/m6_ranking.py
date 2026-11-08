@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -29,7 +31,7 @@ class RankedItem:
     components: dict[str, float] = field(default_factory=dict)
     unavailable_reasons: list[str] = field(default_factory=list)
     reason_ar: str = ""
-    ts=field(default_factory=utcnow)
+    ts: datetime = field(default_factory=utcnow)
 
 
 class OpportunityRanker:

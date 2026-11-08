@@ -1,10 +1,8 @@
-"""M5 — تقييم استراتيجيات تكيفي (إحصائي، لا انفعالي).
-
-قواعد:
-- تقليل حجم/تعطيل استراتيجية فقط عند مبرر إحصائي: حد أدنى تداولات + فترة ثقة bootstrap على expectancy.
-- الاستراتيجية المعطلة تعود عبر فترة اختبار ورقية (probation).
-- لا ضبط معاملات على نتائج داخل العينة أبداً؛ التغييرات تحتاج تأكيد خارج العينة وتسجل قبل/بعد في audit_log.
-"""
+# M5 — تقييم استراتيجيات تكيفي (إحصائي، لا انفعالي).
+# قواعد:
+# - تقليل حجم/تعطيل استراتيجية فقط عند مبرر إحصائي: حد أدنى تداولات + فترة ثقة bootstrap على expectancy.
+# - الاستراتيجية المعطلة تعود عبر فترة اختبار ورقية (probation).
+# - لا ضبط معاملات على نتائج داخل العينة أبداً.
 from __future__ import annotations
 
 import math
@@ -19,7 +17,7 @@ from app.models import utcnow
 @dataclass
 class StrategyPerf:
     name: str
-    trades: list[float] = field(default_factory=list)   # نتائج R (مضاعفات المخاطرة) أو نسب
+    trades: list = field(default_factory=list)
     wins: int = 0
     losses: int = 0
     gross_win: float = 0.0
@@ -37,9 +35,9 @@ class AdaptiveEvaluator:
         self.ci_confidence = ci_confidence
         self.disable_below = disable_below
         self.bootstrap_iters = bootstrap_iters
-        self.perf: dict[str, StrategyPerf] = {}
+        self.perf = {}
 
-    def record(self, strategy: str, pnl_r: float) -> None:
+    def record(self, strategy, pnl_r):
         p = self.perf.setdefault(strategy, StrategyPerf(name=strategy))
         p.trades.append(pnl_r)
         if pnl_r >= 0:
@@ -52,8 +50,8 @@ class AdaptiveEvaluator:
         peak = np.maximum.accumulate(equity) if len(equity) else np.array([0.0])
         p.max_drawdown = float(np.max(peak - equity)) if len(equity) else 0.0
 
-    def bootstrap_ci(self, trades: np.ndarray) -> tuple[float, float]:
-        """فترة ثقة bootstrap على expectancy — الضجيج لا يطلق قرارات."""
+    def bootstrap_ci(self, trades):
+        # فترة ثقة bootstrap على expectancy — الضجيج لا يطلق قرارات.
         rng = np.random.default_rng(42)
         n = len(trades)
         means = np.array([
@@ -62,7 +60,7 @@ class AdaptiveEvaluator:
         lo, hi = np.percentile(means, [(1 - self.ci_confidence) / 2 * 100, (1 + self.ci_confidence) / 2 * 100])
         return float(lo), float(hi)
 
-    def evaluate(self, strategy: str) -> dict:
+    def evaluate(self, strategy):
         p = self.perf.get(strategy)
         if p is None or len(p.trades) < self.min_trades:
             return {
@@ -76,19 +74,19 @@ class AdaptiveEvaluator:
         lo, hi = self.bootstrap_ci(trades)
         decision = "keep"
         note = ""
-        if hi < self.disable_below:  # الحد الأعلى لفترة الثقة سالب = expectancy سالب بثقة
+        if hi < self.disable_below:
             if not p.disabled:
                 p.disabled = True
                 p.probation = True
                 decision = "disabled"
                 note = "expectancy سالبة بثقة إحصائية (فترة ثقة علوية تحت الصفر) — تعطيل ودخول فترة اختبار ورقية"
-                p.last_change_ar = f"{utcnow().isoformat()}: {note}"
+                p.last_change_ar = utcnow().isoformat() + ": " + note
         elif p.disabled and lo > 0 and p.probation:
             p.disabled = False
             p.probation = False
             decision = "re_enabled_after_probation"
             note = "expectancy موجبة بثقة خلال فترة الاختبار الورقي — إعادة تفعيل"
-            p.last_change_ar = f"{utcnow().isoformat()}: {note}"
+            p.last_change_ar = utcnow().isoformat() + ": " + note
         return {
             "strategy": strategy, "status": decision,
             "trades": len(trades), "expectancy_r": round(expectancy, 4),
@@ -99,7 +97,7 @@ class AdaptiveEvaluator:
             "note_ar": note or "أداء ضمن الحدود — لا تغيير",
         }
 
-    def audit_log(self) -> list[dict]:
+    def audit_log(self):
         return [
             {"strategy": p.name, "disabled": p.disabled, "probation": p.probation,
              "last_change": p.last_change_ar}
@@ -107,8 +105,8 @@ class AdaptiveEvaluator:
         ]
 
 
-def walk_forward_sanity(train_score: float, test_score: float, tolerance: float = 0.5) -> bool:
-    """تأكيد خارج العينة: النتيجة الحية/الاختبارية لا يجب أن تنهار مقابل التدريب."""
+def walk_forward_sanity(train_score, test_score, tolerance=0.5):
+    # تأكيد خارج العينة: النتيجة الحية/الاختبارية لا يجب أن تنهار مقابل التدريب.
     if train_score <= 0:
         return False
     return test_score >= train_score * tolerance

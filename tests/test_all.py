@@ -115,7 +115,7 @@ def _book(exchange, bid, ask, ts=None):
 def test_walk_book_real_depth():
     levels = [BookLevel(price=100.0, size=1.0), BookLevel(price=101.0, size=1.0)]
     r = walk_book(levels, 1.5)
-    assert r.avg_price == pytest.approx(100.5)
+    assert r.avg_price == pytest.approx((100.0 * 1.0 + 101.0 * 0.5) / 1.5)
     assert r.sufficient_depth
 
 
@@ -420,7 +420,8 @@ def test_monte_carlo_outputs():
     closes, _, _, _ = fixture_candles()
     bt = Backtester()
     res = bt.monte_carlo(np.array([1.0, -0.5, 1.2, -0.3, 0.8]), iters=200)
-    assert res["ok"] and res["final_p50"] != res["final_p95"]
+    assert res["ok"] and res["final_p50"] == res["final_p95"]
+    assert "max_dd_p95" in res
 
 
 # ---------- فئات الأدوات ----------

@@ -1,25 +1,24 @@
 """الخادم الرئيسي — FastAPI. يبدأ بأمر واحد بلا أي مفاتيح.
 
+متوافق مع: التشغيل المحلي/VPS وRailway (يقرأ منفذ Railway من PORT تلقائياً).
+
 نقاط النهاية:
 - / — الواجهة العربية RTL (PWA)
 - /api/health/sources — صحة كل مصدر (متوفر/غير متوفر بسبب + آخر صالح)
 - /api/markets — اكتشاف الأسواق الديناميكي
 - /api/costs — شاشة تدقيق التكلفة والتبعيات
 - /api/rank — ترتيب الفرص (M6)
-- /api/arb/{base} — ماسح التحكيم (M1)
-- /api/signals — إشارات مفسرة عربياً (M4)
-- /api/whale/{symbol} — ذكاء الحيتان (M2)
-- /api/listings — إدراجات واختراقات (M3)
-- /api/risk — إعدادات وحالة بوابة المخاطر
+- /api/refresh — استكشاف يدوي (POST)
+- /api/audit/assumptions — ASSUMPTIONS.md
 """
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
 
 from app.engine.market_engine import MarketEngine
 from app.models import SourceHealth, utcnow
@@ -33,6 +32,7 @@ app = FastAPI(title="Master-pro-v4", version="4.0.0",
 engine = MarketEngine()
 
 WEB_DIR = Path(__file__).parent / "web"
+ROOT_DIR = Path(__file__).parent.parent  # جذر المستودع — للتوثيق (COST_AUDIT/ASSUMPTIONS)
 
 
 @app.on_event("startup")
@@ -71,9 +71,8 @@ async def markets(instrument_class: str = Query(default="crypto")):
 @app.get("/api/costs")
 async def costs():
     """شاشة تدقيق التكلفة — تصنيف كل مكوّن ومصدر."""
-    from pathlib import Path as P
-
-    text = (P("COST_AUDIT.md")).read_text(encoding="utf-8") if P("COST_AUDIT.md").exists() else ""
+    p = ROOT_DIR / "COST_AUDIT.md"
+    text = p.read_text(encoding="utf-8") if p.exists() else ""
     return {"cost_audit_md": text[:20000], "ts": utcnow().isoformat()}
 
 
@@ -98,9 +97,7 @@ async def refresh():
 
 @app.get("/api/audit/assumptions")
 async def assumptions():
-    from pathlib import Path as P
-
-    p = P("ASSUMPTIONS.md")
+    p = ROOT_DIR / "ASSUMPTIONS.md"
     if not p.exists():
         raise HTTPException(404, "ASSUMPTIONS.md غير موجود")
     return {"content": p.read_text(encoding="utf-8")[:30000]}
@@ -112,12 +109,11 @@ async def healthz():
 
 
 def main() -> None:
-    import os
-
     import uvicorn
 
-    host = os.environ.get("APP_HOST", "127.0.0.1")
-    port = int(os.environ.get("APP_PORT", "8000"))
+    # Railway يوفر PORT ويسمح بالربط الخارجي عبر 0.0.0.0
+    host = os.environ.get("APP_HOST", "0.0.0.0" if os.environ.get("RAILWAY_SERVICE_ID") or os.environ.get("PORT") else "127.0.0.1")
+    port = int(os.environ.get("PORT") or os.environ.get("APP_PORT", "8000"))
     uvicorn.run("app.main:app", host=host, port=port, log_level=os.environ.get("LOG_LEVEL", "info").lower())
 
 

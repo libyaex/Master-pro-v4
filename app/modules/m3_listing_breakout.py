@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 import math
 from dataclasses import dataclass, field
 from typing import Optional
@@ -29,14 +31,14 @@ class BreakoutEvent:
     retest_held: Optional[bool]
     risk_label: str = "normal"          # normal | suspicious
     evidence_ar: list[str] = field(default_factory=list)
-    ts=field(default_factory=utcnow)
+    ts: datetime = field(default_factory=utcnow)
 
 
 @dataclass
 class NewListingEvent:
     spec: InstrumentSpec
     note_ar: str
-    ts=field(default_factory=utcnow)
+    ts: datetime = field(default_factory=utcnow)
 
 
 class ListingBreakoutScanner:
