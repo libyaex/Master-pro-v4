@@ -1,0 +1,1 @@
+استراتيجيات — إضافات analyze(context) -> SignalRecord | None.
