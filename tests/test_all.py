@@ -1,5 +1,6 @@
 """اختبارات شاملة — بيانات شواهد موسومة فقط (fixture)، لا بيانات مختلقة في مسارات الإنتاج."""
 import math
+from datetime import timedelta
 from pathlib import Path
 
 import numpy as np
@@ -114,10 +115,10 @@ def _book(exchange, bid, ask, ts=None):
 
 
 def test_walk_book_real_depth():
-    # 1.0 وحدة @100 + 0.5 وحدة @101 → متوسط (100 + 50.5)/1.5 = 100.333…
+    # 1.0 وحدة @100 + 0.5 وحدة @101 → متوسط (100×1.0 + 101×0.5)/1.5 = 100.333…
     levels = [BookLevel(price=100.0, size=1.0), BookLevel(price=101.0, size=1.0)]
     r = walk_book(levels, 1.5)
-    assert r.avg_price == pytest.approx(100.0 + 0.5 * 101.0 / 1.5)
+    assert r.avg_price == pytest.approx((100.0 * 1.0 + 101.0 * 0.5) / 1.5)
     assert r.sufficient_depth
 
 
@@ -133,12 +134,24 @@ def test_arb_executable_needs_fees_known():
         "bybit": _book("bybit", 100.5, 101.0),
     }, recent_volatility=0.00001)
     assert opp is not None
-    assert opp.classification == "informational"  # عبر منصات = معلوماتي دائماً
+    assert opp.classification == "informational"  # عبر منصات = معلوماتي إلا بتمكين صريح
+
+
+def test_arb_executable_when_pair_enabled():
+    """التنفيذ القابل للتفعيل فقط عند تمكين صريح للزوج من المستخدم."""
+    scanner = ArbitrageScanner(
+        taker_fees={"binance_spot": 0.0004, "bybit": 0.0004},
+        auto_execute_pairs={("binance_spot", "bybit")},
+    )
+    opp = scanner.compare("BTC", "USDT", "crypto", 1.0, {
+        "binance_spot": _book("binance_spot", 99.0, 100.0),
+        "bybit": _book("bybit", 100.5, 101.0),
+    }, recent_volatility=0.00001)
+    assert opp is not None
+    assert opp.classification == "executable"
 
 
 def test_arb_stale_book_excluded():
-    from datetime import timedelta
-
     scanner = ArbitrageScanner(taker_fees={"a": 0.0, "b": 0.0}, freshness_ms=10)
     old = utcnow() - timedelta(seconds=5)
     opp = scanner.compare("BTC", "USDT", "crypto", 1.0, {
@@ -154,8 +167,9 @@ def test_arb_missing_fees_informational():
         "a": _book("a", 99.0, 100.0),
         "b": _book("b", 100.5, 101.0),
     }, recent_volatility=0.0)
+    assert opp is not None  # الفرصة تُسجَّل معلوماتياً — الرسوم المجهولة ليست رفضاً صامتاً
     assert opp.classification == "informational"
-    assert "الرسوم" in opp.reason_ar or "رسوم" in opp.reason_ar
+    assert "رسوم" in opp.reason_ar
 
 
 # ---------- M2: الحيتان ----------
@@ -425,7 +439,9 @@ def test_backtester_runs_and_reports():
 def test_monte_carlo_outputs():
     bt = Backtester()
     res = bt.monte_carlo(np.array([1.0, -0.5, 1.2, -0.3, 0.8]), iters=200)
-    assert res["ok"] and res["final_p50"] != res["final_p95"]
+    assert res["ok"]
+    # bootstrap: القيم المئوية تختلف (permutation سابقاً جعلها متطابقة)
+    assert res["final_p50"] != res["final_p95"]
 
 
 # ---------- فئات الأدوات ----------
