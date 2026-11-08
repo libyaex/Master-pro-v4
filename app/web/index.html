@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b0e14">
+<title>Master-pro-v4 — منصة ذكاء السوق</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #12161f; --panel2: #171c27; --line: #232a3a;
+    --text: #e8ecf3; --dim: #9aa4b5; --green: #2ecc71; --red: #e74c3c;
+    --gold: #f1c40f; --accent: #4a90d9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", Arial, sans-serif;
+    padding: 16px; max-width: 1200px; margin: 0 auto;
+  }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  h1 { font-size: 1.35rem; color: var(--gold); }
+  h1 small { color: var(--dim); font-size: .8rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .card h2 { font-size: 1rem; margin-bottom: 10px; color: var(--accent); }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: .75rem; }
+  .ok { background: rgba(46,204,113,.15); color: var(--green); }
+  .down { background: rgba(231,76,60,.15); color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; }
+  .muted { color: var(--dim); font-size: .78rem; }
+  button { background: var(--accent); border: 0; color: #fff; padding: 8px 16px;
+           border-radius: 8px; cursor: pointer; font-family: inherit; }
+  button:hover { filter: brightness(1.15); }
+  nav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  nav button { background: var(--panel2); border: 1px solid var(--line); color: var(--text); }
+  nav button.active { border-color: var(--gold); color: var(--gold); }
+  .unavail { color: var(--red); font-size: .8rem; }
+  footer { margin-top: 20px; color: var(--dim); font-size: .75rem; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Master-pro-v4 <small>— ذكاء سوق متعدد المنصات · صفر تكلفة إلزامية</small></h1>
+  <div class="muted" id="clock"></div>
+</header>
+
+<nav>
+  <button data-tab="sources" class="active">صحة المصادر</button>
+  <button data-tab="markets">الأسواق والاكتشاف</button>
+  <button data-tab="signals">الإشارات</button>
+  <button data-tab="arb">التحكيم (M1)</button>
+  <button data-tab="whale">الحيتان (M2)</button>
+  <button data-tab="listings">الإدراجات والاختراق (M3)</button>
+  <button data-tab="rank">ترتيب الفرص (M6)</button>
+  <button data-tab="costs">تدقيق التكلفة</button>
+  <button data-tab="risk">المخاطر</button>
+  <button data-tab="assumptions">الافتراضات</button>
+</nav>
+
+<section id="tab-sources" class="grid"></section>
+<section id="tab-markets" class="grid" hidden></section>
+<section id="tab-signals" class="grid" hidden></section>
+<section id="tab-arb" class="grid" hidden></section>
+<section id="tab-whale" class="grid" hidden></section>
+<section id="tab-listings" class="grid" hidden></section>
+<section id="tab-rank" class="grid" hidden></section>
+<section id="tab-costs" class="grid" hidden></section>
+<section id="tab-risk" class="grid" hidden></section>
+<section id="tab-assumptions" class="grid" hidden></section>
+
+<footer>
+  كل الأرقام تحمل منصتها وفئتها وطابعها الزمني (UTC). لا توجد أي ادعاءات ربح مضمون — منصة معلوماتية/تعليمية.
+</footer>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const tabs = document.querySelectorAll("nav button");
+const sections = ["sources","markets","signals","arb","whale","listings","rank","costs","risk","assumptions"];
+
+tabs.forEach(btn => btn.addEventListener("click", () => {
+  tabs.forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  sections.forEach(s => $(`#tab-${s}`).hidden = (s !== btn.dataset.tab));
+}));
+
+setInterval(() => $("#clock").textContent = new Date().toISOString().replace("T"," ").slice(0,19) + " UTC", 1000);
+
+async function loadSources() {
+  const r = await fetch("/api/health/sources");
+  const data = await r.json();
+  $("#tab-sources").innerHTML = `
+    <div class="card" style="grid-column:1/-1">
+      <h2>صحة مصادر البيانات</h2>
+      <table><thead><tr><th>المصدر</th><th>الحالة</th><th>السبب / آخر طابع صالح</th></tr></thead>
+      <tbody>${data.map(h => `<tr>
+        <td>${h.source}</td>
+        <td>${h.available ? '<span class="badge ok">متوفر</span>' : '<span class="badge down">غير متوفر</span>'}</td>
+        <td class="${h.available ? "muted" : "unavail"}">${h.available ? (h.last_good_ts || "") : (h.reason || "") + (h.last_good_ts ? " — آخر صالح: " + h.last_good_ts : "")}</td>
+      </tr>`).join("")}</tbody></table>
+      <p class="muted" style="margin-top:10px">مصدر غير متوفر يظهر بسبب وآخر طابع صالح — لا تقدير صامت أبداً.</p>
+    </div>`;
+}
+
+async function loadMarkets() {
+  const r = await fetch("/api/markets?instrument_class=crypto");
+  const d = await r.json();
+  $("#tab-markets").innerHTML = `
+    <div class="card" style="grid-column:1/-1">
+      <h2>الأسواق — ${d.instrument_class} (${d.count} أداة، أول 100)</h2>
+      <table><thead><tr><th>الرمز</th><th>المنصة</th><th>الفئة</th><th>tick</th><th>lot</th></tr></thead>
+      <tbody>${d.instruments.slice(0,100).map(i => `<tr><td>${i.symbol}</td><td>${i.exchange}</td><td class="muted">${i.instrument_class}</td><td>${i.tick_size}</td><td>${i.lot_step}</td></tr>`).join("")}</tbody></table>
+      <p class="muted">الفئات الأربع (كريبتو/ذهب مرمز/مشتقات ذهب/XAUUSD) لا تُخلط أبداً في المقارنات.</p>
+    </div>`;
+}
+
+async function loadCosts() {
+  const r = await fetch("/api/costs"); const d = await r.json();
+  $("#tab-costs").innerHTML = `<div class="card" style="grid-column:1/-1"><h2>تدقيق التكلفة</h2>
+    <pre class="muted" style="white-space:pre-wrap">${d.cost_audit_md}</pre></div>`;
+}
+
+async function loadAssumptions() {
+  const r = await fetch("/api/audit/assumptions"); const d = await r.json();
+  $("#tab-assumptions").innerHTML = `<div class="card" style="grid-column:1/-1"><h2>ASSUMPTIONS.md</h2>
+    <pre class="muted" style="white-space:pre-wrap">${d.content}</pre></div>`;
+}
+
+loadSources(); loadMarkets(); loadCosts(); loadAssumptions();
+</script>
+</body>
+</html>
