@@ -66,15 +66,15 @@ class Backtester:
             sig = strategy.analyze(sub_ctx)
             if sig is None:
                 continue
-            # محاكاة النتيجة بعد التكاليف — إغلاق الشمعة التالية (بدون رؤية المستقبل)
+            # محاكاة النتيجة بعد التكاليف
             cost = self.costs_per_trade_pct / 100.0
-            exit_price = c[i + 1]
-            per_unit = max(abs(sig.entry - sig.stop_loss), 1e-9)
             if sig.direction == "long":
-                pnl_r = (exit_price - sig.entry) / per_unit
+                exit_price = c[i + 1]  # إغلاق الشمعة التالية (بدون رؤية المستقبل)
+                pnl_r = (exit_price - sig.entry) / max(abs(sig.entry - sig.stop_loss), 1e-9)
             else:
-                pnl_r = (sig.entry - exit_price) / per_unit
-            pnl_r -= cost * sig.entry / per_unit
+                exit_price = c[i + 1]
+                pnl_r = (sig.entry - exit_price) / max(abs(sig.stop_loss - sig.entry), 1e-9)
+            pnl_r -= cost * sig.entry / max(abs(sig.entry - sig.stop_loss), 1e-9)
             results.append(pnl_r)
             equity *= (1 + pnl_r * 0.005)  # 0.5% مخاطرة لكل صفقة
             equity_curve.append(equity)
@@ -121,19 +121,18 @@ class Backtester:
 
     @staticmethod
     def monte_carlo(trades: np.ndarray, iters: int = 1000, risk_pct: float = 0.005) -> dict:
-        """إعادة عينو الصفقات — توزيع drawdown ومخاطر الذيل.
+        """إعادة عينو ترتيب الصفقات — توزيع drawdown ومخاطر الذيل.
 
-        سحب مع إرجاع (bootstrap): permutation كان يجعل الناتج النهائي
-        ثابتاً رياضياً (عملية ضرب تجميعية لا تتأثر بترتيب العوامل)
-        فيتساوى p50 وp95 بلا معنى إحصائي.
+        ملاحظة رياضية: الناتج النهائي تحت مخاطرة جزئية ثابتة ثابت الترتيب
+        (عملية ضرب تجميعية)، فيتساوى p50 وp95 — توزيع المخاطر الحقيقي
+        يظهر في max_dd_p95 الذي يتأثر بالترتيب فعلاً.
         """
         if trades.size == 0:
             return {"ok": False}
         rng = np.random.default_rng(7)
-        n = trades.size
         finals, max_dds = [], []
         for _ in range(iters):
-            seq = trades[rng.integers(0, n, n)]  # سحب مع إرجاع
+            seq = rng.permutation(trades)
             eq = np.cumprod(1 + seq * risk_pct)
             peak = np.maximum.accumulate(eq)
             max_dds.append(float((1 - eq / peak).max()))
